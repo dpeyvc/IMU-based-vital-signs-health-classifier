@@ -252,10 +252,10 @@ def plot_history(history):
 plot_history(history)
 
 # 19. 모델 저장
-model.save('dog_health_predictor_dnn_model.h5')
+model.save('Vital_model.h5')
 
 # 20. 모델 로드 및 예측 예시
-loaded_model = tf.keras.models.load_model('dog_health_predictor_dnn_model.h5')
+loaded_model = tf.keras.models.load_model('Vital_model.h5')
 
 # 새로운 데이터 예시 (실제 값으로 대체)
 new_data = np.array([
