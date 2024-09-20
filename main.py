@@ -204,6 +204,20 @@ history = model.fit(
     verbose=1
 )
 
+import pickle
+
+# LabelEncoders 저장
+with open('le_breeds.pkl', 'wb') as f:
+    pickle.dump(le_breeds, f)
+
+with open('le_health.pkl', 'wb') as f:
+    pickle.dump(le_health, f)
+
+# StandardScaler 저장
+with open('scaler.pkl', 'wb') as f:
+    pickle.dump(scaler, f)
+
+
 # 16. 모델 평가
 test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test, verbose=0)
 print(f'Test Accuracy: {test_accuracy:.4f}')
@@ -253,35 +267,3 @@ plot_history(history)
 
 # 19. 모델 저장
 model.save('Vital_model.h5')
-
-# 20. 모델 로드 및 예측 예시
-loaded_model = tf.keras.models.load_model('Vital_model.h5')
-
-# 새로운 데이터 예시 (실제 값으로 대체)
-new_data = np.array([
-    [
-        le_breeds.transform(['Labrador'])[0],  # breeds_encoded
-        5,  # age
-        25,  # weight
-        80,  # hr_mean
-        100,  # hr_max
-        60,  # hr_min
-        10,  # hr_std
-        30,  # br_mean
-        40,  # br_max
-        20,  # br_min
-        5,  # br_std
-        0.8,  # ecg_pulse_interval_mean
-        0.1,  # ecg_pulse_interval_std
-        0  # bad_ecg_total_time
-    ]
-])
-
-# 데이터 정규화
-new_data_scaled = scaler.transform(new_data)
-
-# 예측
-prediction = loaded_model.predict(new_data_scaled)
-predicted_class = 'Unhealthy' if prediction[0][0] > 0.5 else 'Healthy'
-
-print(f'Predicted Health Status: {predicted_class}')
