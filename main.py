@@ -1,269 +1,69 @@
-import os
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report
-import tensorflow as tf
-from tensorflow.keras import layers, models, regularizers
-import ast
+import pandas as pd
+from tensorflow.keras.models import load_model
+import joblib
+import time
 
-# 1. 데이터 로드
-data_dir = 'dog_health_vitals_dataset'
-csv_path = os.path.join(data_dir, 'dataset.csv')
-data = pd.read_csv(csv_path)
+# 저장된 모델 경로
+model_file_path = 'pet_vital_model.keras'
+scaler_file_path = 'scaler.save'
 
-# 2. 데이터 확인
-print(data.head())
-print(data.info())
-print(data.isnull().sum())
+# 1. 모델 로드
+model = load_model(model_file_path)
+print("모델이 성공적으로 로드되었습니다.")
 
-# 3. 결측치 처리
-data['segments_br'] = data['segments_br'].fillna('[]')
-data['segments_hr'] = data['segments_hr'].fillna('[]')
-data['ecg_pulses'] = data['ecg_pulses'].fillna('[]')
-data['ecg_path'] = data['ecg_path'].fillna('')
-
-# 4. 범주형 변수 인코딩
-le_breeds = LabelEncoder()
-data['breeds_encoded'] = le_breeds.fit_transform(data['breeds'])
+# 2. 스케일러 로드 (데이터 정규화를 위해)
+scaler = joblib.load(scaler_file_path)
+print("스케일러가 성공적으로 로드되었습니다.")
 
 
-# 5. 세그먼트 데이터 특성 추출
-def extract_segment_features(segment_column, prefix):
-    features = pd.DataFrame()
-    for i, segments in enumerate(segment_column):
-        try:
-            segments = ast.literal_eval(segments)
-            if len(segments) > 0:
-                values = [seg['value'] for seg in segments]
-                features.loc[i, f'{prefix}_mean'] = np.mean(values)
-                features.loc[i, f'{prefix}_max'] = np.max(values)
-                features.loc[i, f'{prefix}_min'] = np.min(values)
-                features.loc[i, f'{prefix}_std'] = np.std(values) if len(values) > 1 else 0
-            else:
-                features.loc[i, f'{prefix}_mean'] = 0
-                features.loc[i, f'{prefix}_max'] = 0
-                features.loc[i, f'{prefix}_min'] = 0
-                features.loc[i, f'{prefix}_std'] = 0
-        except (ValueError, SyntaxError):
-            features.loc[i, f'{prefix}_mean'] = 0
-            features.loc[i, f'{prefix}_max'] = 0
-            features.loc[i, f'{prefix}_min'] = 0
-            features.loc[i, f'{prefix}_std'] = 0
-    return features
+# 3. 임의의 데이터 수신 (1초에 한 번씩 데이터 수신하여 10초 동안 데이터 모으기)
+def get_mock_data():
+    """
+    실제 데이터 수신이 가능한 환경에서는 이 함수를
+    실제 데이터 수신 함수로 대체하면 됩니다.
+    """
+    # 예시로 임의의 데이터를 생성합니다.
+    heart_rate = np.random.randint(60, 150)  # 60 ~ 150 범위의 심박수
+    respiration_rate = np.random.randint(10, 40)  # 10 ~ 40 범위의 호흡수
+    temperature = np.random.uniform(37.0, 39.5)  # 37.0 ~ 39.5 범위의 체온
+    state = np.random.choice([0, 1, 2])  # 상태 (정지: 0, 걷기: 1, 뛰기: 2)
+    dog_type = np.random.choice([0, 1, 2])  # 도그 타입 (0: 소형견, 1: 대형견, 2: 노령견)
+
+    return np.array([heart_rate, respiration_rate, temperature, state, dog_type])
 
 
-hr_features = extract_segment_features(data['segments_hr'], 'hr')
-br_features = extract_segment_features(data['segments_br'], 'br')
-data = pd.concat([data, hr_features, br_features], axis=1)
+# 4. 10초 동안 데이터 수집 및 예측 (평균값 사용)
+def collect_and_predict():
+    collected_data = []
+
+    for _ in range(10):  # 10초 동안 데이터 수신
+        data = get_mock_data()  # 실제 환경에서는 실제 수신 데이터로 교체
+        collected_data.append(data)
+        time.sleep(1)  # 1초에 한 번 데이터 수신
+
+    # 수집된 데이터를 NumPy 배열로 변환
+    collected_data = np.array(collected_data)
+
+    # 10개의 데이터를 평균화
+    averaged_data = np.mean(collected_data, axis=0).reshape(1, -1)
+
+    # 평균화된 데이터를 pandas DataFrame으로 변환하여 스케일링
+    columns = ['HeartRate', 'RespirationRate', 'Temperature', 'State', 'DogType']
+    averaged_data_df = pd.DataFrame(averaged_data, columns=columns)
+
+    # 5. 평균화된 데이터를 스케일링
+    averaged_data_scaled = scaler.transform(averaged_data_df)
+
+    # 6. 예측 수행 (평균값으로 예측)
+    prediction_prob = model.predict(averaged_data_scaled)
+    prediction = (prediction_prob > 0.5).astype(int)
+
+    # 7. 결과 출력
+    print(f"평균 데이터: {averaged_data}")
+    print(f"예측 확률: {prediction_prob[0][0]:.4f}")
+    print(f"예측된 클래스 (정상: 0, 비정상: 1): {prediction[0][0]}")
 
 
-# 6. ECG 펄스 특성 추출
-def extract_ecg_features(ecg_pulses_column):
-    features = pd.DataFrame()
-    for i, pulses in enumerate(ecg_pulses_column):
-        try:
-            pulses = ast.literal_eval(pulses)
-            if len(pulses) > 1:
-                intervals = np.diff(pulses)
-                features.loc[i, 'ecg_pulse_interval_mean'] = np.mean(intervals)
-                features.loc[i, 'ecg_pulse_interval_std'] = np.std(intervals)
-            else:
-                features.loc[i, 'ecg_pulse_interval_mean'] = 0
-                features.loc[i, 'ecg_pulse_interval_std'] = 0
-        except (ValueError, SyntaxError):
-            features.loc[i, 'ecg_pulse_interval_mean'] = 0
-            features.loc[i, 'ecg_pulse_interval_std'] = 0
-    return features
-
-
-ecg_features = extract_ecg_features(data['ecg_pulses'])
-data = pd.concat([data, ecg_features], axis=1)
-
-
-# 7. 불량 ECG 세그먼트 특성 추출
-def calculate_bad_ecg_duration(bad_ecg_column):
-    features = pd.DataFrame()
-    for i, segments in enumerate(bad_ecg_column):
-        try:
-            segments = ast.literal_eval(segments)
-            total_bad_time = sum([seg[1] - seg[0] for seg in segments]) if len(segments) > 0 else 0
-            features.loc[i, 'bad_ecg_total_time'] = total_bad_time
-        except (ValueError, SyntaxError):
-            features.loc[i, 'bad_ecg_total_time'] = 0
-    return features
-
-
-bad_ecg_features = calculate_bad_ecg_duration(data['bad_ecg'])
-data = pd.concat([data, bad_ecg_features], axis=1)
-
-
-# 8. 목표 변수 생성 (예시)
-def create_health_label(row):
-    if row['age'] > 8 or row['weight'] < 5 or row['weight'] > 50:
-        return 'Unhealthy'
-    else:
-        return 'Healthy'
-
-
-data['HealthStatus'] = data.apply(create_health_label, axis=1)
-
-# 레이블 인코딩
-le_health = LabelEncoder()
-data['HealthStatus_encoded'] = le_health.fit_transform(data['HealthStatus'])
-
-print(le_health.classes_)  # ['Healthy' 'Unhealthy']
-
-# 9. 특성 및 레이블 분리
-feature_columns = [
-    'breeds_encoded', 'age', 'weight',
-    'hr_mean', 'hr_max', 'hr_min', 'hr_std',
-    'br_mean', 'br_max', 'br_min', 'br_std',
-    'ecg_pulse_interval_mean', 'ecg_pulse_interval_std',
-    'bad_ecg_total_time'
-]
-
-X = data[feature_columns]
-y = data['HealthStatus_encoded']
-
-# 10. 데이터 분할
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
-
-# 11. 데이터 정규화
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-
-
-# 12. DNN 모델 구축 함수 정의
-def build_dnn_model(input_dim, l2_strength=1e-4):
-    model = models.Sequential()
-
-    # 첫 번째 은닉층
-    model.add(layers.Dense(128, activation='relu', input_dim=input_dim,
-                           kernel_regularizer=regularizers.l2(l2_strength)))
-    model.add(layers.BatchNormalization())
-    model.add(layers.Dropout(0.3))
-
-    # 두 번째 은닉층
-    model.add(layers.Dense(64, activation='relu',
-                           kernel_regularizer=regularizers.l2(l2_strength)))
-    model.add(layers.BatchNormalization())
-    model.add(layers.Dropout(0.3))
-
-    # 세 번째 은닉층
-    model.add(layers.Dense(32, activation='relu',
-                           kernel_regularizer=regularizers.l2(l2_strength)))
-    model.add(layers.BatchNormalization())
-    model.add(layers.Dropout(0.3))
-
-    # 출력층
-    model.add(layers.Dense(1, activation='sigmoid'))
-
-    return model
-
-
-# 13. 모델 생성 및 컴파일
-input_dim = X_train_scaled.shape[1]
-model = build_dnn_model(input_dim)
-
-model.compile(
-    optimizer='adam',
-    loss='binary_crossentropy',
-    metrics=['accuracy']
-)
-
-model.summary()
-
-# 14. 콜백 정의
-early_stop = tf.keras.callbacks.EarlyStopping(
-    monitor='val_loss',
-    patience=15,
-    restore_best_weights=True
-)
-
-reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-    monitor='val_loss',
-    factor=0.2,
-    patience=5,
-    min_lr=1e-6
-)
-
-# 15. 모델 학습
-history = model.fit(
-    X_train_scaled, y_train,
-    epochs=200,
-    batch_size=32,
-    validation_split=0.2,
-    callbacks=[early_stop, reduce_lr],
-    verbose=1
-)
-
-import pickle
-
-# LabelEncoders 저장
-with open('le_breeds.pkl', 'wb') as f:
-    pickle.dump(le_breeds, f)
-
-with open('le_health.pkl', 'wb') as f:
-    pickle.dump(le_health, f)
-
-# StandardScaler 저장
-with open('scaler.pkl', 'wb') as f:
-    pickle.dump(scaler, f)
-
-
-# 16. 모델 평가
-test_loss, test_accuracy = model.evaluate(X_test_scaled, y_test, verbose=0)
-print(f'Test Accuracy: {test_accuracy:.4f}')
-
-# 17. 추가 평가 지표
-y_pred_probs = model.predict(X_test_scaled)
-y_pred_classes = (y_pred_probs > 0.5).astype(int).reshape(-1)
-
-# 혼동 행렬
-cm = confusion_matrix(y_test, y_pred_classes)
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=le_health.classes_, yticklabels=le_health.classes_)
-plt.xlabel('Predicted')
-plt.ylabel('True')
-plt.title('Confusion Matrix')
-plt.show()
-
-# 분류 보고서
-print(classification_report(y_test, y_pred_classes, target_names=le_health.classes_))
-
-
-# 18. 학습 곡선 시각화
-def plot_history(history):
-    # 손실 그래프
-    plt.figure(figsize=(14, 5))
-
-    plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Loss Over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-
-    # 정확도 그래프
-    plt.subplot(1, 2, 2)
-    plt.plot(history.history['accuracy'], label='Train Accuracy')
-    plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-    plt.title('Accuracy Over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy')
-    plt.legend()
-
-    plt.show()
-
-
-plot_history(history)
-
-# 19. 모델 저장
-model.save('Vital_model.h5')
+# 예측 실행
+collect_and_predict()
