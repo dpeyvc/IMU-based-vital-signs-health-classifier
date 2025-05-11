@@ -1,4 +1,4 @@
-# Pet-i Vital Model
+# IMU based vital signs health classifier
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue) ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.6%2B-orange)
 
